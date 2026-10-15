@@ -17,8 +17,8 @@ setup(
     py_modules=["ascii_art", "web_interface"],
     python_requires=">=3.7",
     install_requires=[
-        "Pillow>=10.0.0",
-        "gradio>=5.0.0",
+        "Pillow>=12.3.0",
+        "gradio>=6.30.0",
         "python-dotenv>=1.0.0",
     ],
     entry_points={

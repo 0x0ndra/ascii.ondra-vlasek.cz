@@ -5,11 +5,13 @@ Professional landing page for ASCII art generation.
 """
 
 import gradio as gr
-import tempfile
 import os
 import base64
 from pathlib import Path
-from ascii_art import ASCIIPhotoMask, Config, CharacterSets
+from ascii_art import ASCIIPhotoMask, Config, CharacterSets, ImageTooLargeError, restrict_decoders
+
+# Gradio decodes uploads with Pillow itself, so limit the decoders for the whole process
+restrict_decoders()
 
 
 def generate_ascii_art(
@@ -36,11 +38,10 @@ def generate_ascii_art(
         charset: Character set name (e.g., 'ascii', 'blocks', 'emoji_faces')
 
     Returns:
-        Path to generated ASCII art image
+        Generated ASCII art image (PIL), cached by Gradio
 
     Note:
-        Gradio automatically handles cleanup of uploaded files and returned files.
-        Temporary files are stored in Gradio's cache and cleaned up periodically.
+        Uploaded and returned files live in Gradio's cache, which delete_cache cleans up hourly.
     """
     if image is None:
         return None
@@ -65,22 +66,11 @@ def generate_ascii_art(
         # Create generator
         generator = ASCIIPhotoMask(config)
 
-        # Create temporary output file (Gradio will handle cleanup)
-        output_file = tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix='.png',
-            prefix='ascii_art_',
-            dir=tempfile.gettempdir()
-        )
-        output_path = Path(output_file.name)
-        output_file.close()
+        # Generate ASCII art in memory (no extra temp file to clean up)
+        return generator.generate(Path(image))
 
-        # Generate ASCII art
-        input_path = Path(image)
-        generator.generate(input_path, output_path)
-
-        return str(output_path)
-
+    except ImageTooLargeError as e:
+        raise gr.Error(str(e))
     except Exception as e:
         print(f"Error generating ASCII art: {e}")
         return None
@@ -508,7 +498,9 @@ theme = gr.themes.Soft(
     button_primary_background_fill="#3b82f6",
 )
 
-with gr.Blocks(title="ASCII Photo Mask - Transform Photos into Art", theme=theme, css=custom_css) as demo:
+# delete_cache: every hour remove cached uploads and results older than one hour
+with gr.Blocks(title="ASCII Photo Mask - Transform Photos into Art", theme=theme, css=custom_css,
+               delete_cache=(3600, 3600)) as demo:
 
     # Hero Section
     gr.HTML("""
@@ -651,6 +643,7 @@ with gr.Blocks(title="ASCII Photo Mask - Transform Photos into Art", theme=theme
             image_output = gr.Image(
                 label="Result",
                 type="filepath",
+                format="png",
                 elem_classes=["image-preview"]
             )
 
@@ -726,8 +719,9 @@ with gr.Blocks(title="ASCII Photo Mask - Transform Photos into Art", theme=theme
 
 if __name__ == "__main__":
     import os
+    demo.queue(max_size=20, default_concurrency_limit=1)
     demo.launch(
         share=False,
-        server_name=os.getenv("SERVER_HOST", "0.0.0.0"),
+        server_name=os.getenv("SERVER_HOST", "127.0.0.1"),
         server_port=int(os.getenv("SERVER_PORT", "7860"))
     )

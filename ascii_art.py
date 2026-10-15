@@ -14,6 +14,24 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
+# Only decode common photo formats (exotic decoders such as PSD or FITS have a history of memory bugs)
+ALLOWED_FORMATS = ("JPEG", "PNG", "WEBP")
+# Pillow refuses images above 2x this value (decompression bomb protection)
+Image.MAX_IMAGE_PIXELS = 25_000_000
+# Output limits: keep a single render well below the service memory limit
+MAX_OUTPUT_PIXELS = 40_000_000
+MAX_CHAR_ROWS = 600
+
+
+class ImageTooLargeError(ValueError):
+    """Requested output exceeds the allowed size."""
+
+
+def restrict_decoders() -> None:
+    """Limit Pillow process-wide to ALLOWED_FORMATS, also for code that calls Image.open without formats."""
+    Image.init()
+    Image.ID[:] = [fmt for fmt in Image.ID if fmt in ALLOWED_FORMATS]
+
 
 class CharacterSets:
     """Collection of Unicode character sets for different visual styles."""
@@ -280,7 +298,7 @@ class ImageProcessor:
         Returns:
             Resized RGB image
         """
-        img = Image.open(image_path).convert('RGB')
+        img = Image.open(image_path, formats=ALLOWED_FORMATS).convert('RGB')
         return img.resize(target_size, Image.Resampling.LANCZOS)
 
     @staticmethod
@@ -365,26 +383,38 @@ class ASCIIPhotoMask:
         self.config = config
         self.converter = ASCIIConverter(config.char_set)
 
-    def generate(self, input_path: Path, output_path: Path):
+    def generate(self, input_path: Path, output_path: Optional[Path] = None) -> Image.Image:
         """
         Generate ASCII photo mask art.
 
         Args:
             input_path: Path to source image
-            output_path: Path to save output image
+            output_path: Path to save output image (None: only return it)
+
+        Returns:
+            Generated image
         """
         # Load source image
-        source_img = Image.open(input_path).convert('RGB')
+        source_img = Image.open(input_path, formats=ALLOWED_FORMATS).convert('RGB')
         img_width, img_height = source_img.size
 
         # Calculate grid dimensions
         cell_width = img_width / self.config.char_width
         char_height = int((img_height / cell_width))
+        if not 1 <= char_height <= MAX_CHAR_ROWS:
+            raise ImageTooLargeError(
+                f"Unsupported aspect ratio: {char_height} character rows (allowed 1 to {MAX_CHAR_ROWS})"
+            )
         cell_height = img_height / char_height
 
         # Calculate output dimensions
         output_width = self.config.char_width * self.config.font_size
         output_height = char_height * self.config.font_size
+        if output_width * output_height > MAX_OUTPUT_PIXELS:
+            raise ImageTooLargeError(
+                f"Output {output_width}x{output_height} px is too large, "
+                "use fewer characters or a smaller character size"
+            )
 
         print(f"Creating ASCII art: {self.config.char_width}x{char_height} characters")
         print(f"Output size: {output_width}x{output_height} pixels")
@@ -433,11 +463,14 @@ class ASCIIPhotoMask:
         output_img = Image.composite(img_resized, output_img, mask)
 
         # Save output
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_img.save(output_path)
+        if output_path is not None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_img.save(output_path)
 
-        print(f"\n✓ ASCII photo art saved to: {output_path}")
-        print(f"  View with: open '{output_path}'")
+            print(f"\n✓ ASCII photo art saved to: {output_path}")
+            print(f"  View with: open '{output_path}'")
+
+        return output_img
 
     def _draw_character(
         self,
