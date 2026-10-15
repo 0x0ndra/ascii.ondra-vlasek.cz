@@ -271,6 +271,6 @@ Inspired by classic ASCII art but with a modern, visual twist. Built with Python
 
 ---
 
-**Live Demo**: [ascii.ondra-vlasek.cz](https://ascii.ondra-vlasek.cz)
+**Live Demo**: [ascii.ondra-vlasek.cz](https://ascii.ondra-vlasek.cz) (deployment: [DEPLOYMENT.md](DEPLOYMENT.md), self-hosting: [DEPLOYMENT.example.md](DEPLOYMENT.example.md))
 
 **Created by**: [0x0ndra](https://github.com/0x0ndra)
